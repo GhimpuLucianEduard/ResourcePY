@@ -1,8 +1,11 @@
 import tkinter as tk
 import tkinter.filedialog
 import subprocess
-import sh
+import os
+from lxml import etree
+import shutil
 
+xml_namespace = "{http://schemas.microsoft.com/developer/msbuild/2003}"
 
 class Application(tk.Frame):
     def __init__(self, master=None):
@@ -12,6 +15,7 @@ class Application(tk.Frame):
         self.__resourceDir = tk.StringVar()
         self.__resourceDir2 = tk.StringVar()
         self.create_widgets()
+
 
     def create_widgets(self):
         textInfo = tk.Label(self, text="Resource directory:")
@@ -39,24 +43,64 @@ class Application(tk.Frame):
         filename = tk.filedialog.askdirectory()
         self.__resourceDir.set(filename)
 
-
     def browse_button2(self):
         filename = tk.filedialog.askdirectory()
         self.__resourceDir2.set(filename)
 
+    def find_file_by_name(self, findParam, grepParam):
+        findProcoss = subprocess.Popen(["find", self.__resourceDir2.get(), "-name", findParam], stdout=subprocess.PIPE)
+        findProcossResult = subprocess.Popen(["grep", grepParam], stdin=findProcoss.stdout, stdout=subprocess.PIPE)
+
+        findProcoss.stdout.close()
+
+        out, err = findProcossResult.communicate()
+        result = out.decode("utf-8")
+        print(result[:-2])
+        # TODO handle not found result
+        return result[:-2]
+
+    def find_by_extension(self, extension):
+        findProcoss = subprocess.Popen(["find", self.__resourceDir2.get(), "-iname", extension], stdout=subprocess.PIPE)
+        out, err = findProcoss.communicate()
+        result = out.decode("utf-8")
+        print(result[:-2])
+        # TODO handle not found result
+        return result[:-1]
 
     def execute_shell(self):
 
-        # subprocess.run(["cp", "-a", self.__resourceDir.get(), self.__resourceDir2.get()])
+        # subprocess.run(["cp", "-a", self.__resourceDir.get(), iosResourceFile])
+        iosResourceFile = self.find_file_by_name("Resources", "iOS/Resources")
+        iosCsProjFile = self.find_by_extension("*iOs.csproj")
+        print(iosResourceFile, iosCsProjFile)
 
-        process = subprocess.Popen(["find", self.__resourceDir2.get(), "-name", "Resources"], stdout=subprocess.PIPE)
-        process2 = subprocess.Popen(["grep", "iOS/Resources"], stdin=process.stdout, stdout=subprocess.PIPE)
+        parser = etree.XMLParser(remove_blank_text=True)
+        tree = etree.parse(iosCsProjFile, parser)
+        #etree.register_namespace('', "http://schemas.microsoft.com/developer/msbuild/2003")
+        root = tree.getroot()
 
-        process.stdout.close()
+        # find right ItemGroup to add Resources to
+        for element in root.findall(f'{xml_namespace}ItemGroup'):
+            for child in element.findall(f'{xml_namespace}None'):
+                if child.attrib['Include'] == 'Info.plist':
+                    tag = element
 
-        out, err = process2.communicate()
-        outtest = out.decode("utf-8")
-        print(outtest[:-2])
+        # tag = self.get_tag_to_append(iosCsProjFile)
+
+        # <BundleResource Include="Resources\EmptyContact%403x.png" />
+
+        for file in os.listdir(self.__resourceDir.get()):
+            # print(file)
+            newChild = etree.Element(f'{xml_namespace}BundleResource')
+            newChild.set('Include', file)
+            tag.append(newChild)
+            # shutil.copy(file, iosResourceFile)
+
+
+        tree.write(iosCsProjFile, pretty_print=True, with_tail=True)
+
+
+
 
 
 
